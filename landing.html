@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Scan logger</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; padding: 18px; }
+    button { padding: 8px 12px; }
+  </style>
+</head>
+<body>
+  <h3>Scanning...</h3>
+  <div id="status">Initializing...</div>
+
+  <script>
+    // ----- CONFIG -----
+    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwjKb5NDfFgNAq8fAf5YSMGxB6Meu_TVTcGcP-_X0Q8g14mv0KT2WdMJBYDX9s1OxYP9w/exec";
+
+    // Example parameters for this device (replace with your actual device values)
+    const params = {
+      device: "device1",
+      t: "token123",
+      sig: "signatureABC"
+    };
+
+    // ----- UTILITY FUNCTIONS -----
+    function getVisitorUUID() {
+      let v = localStorage.getItem('visitor_uuid_v1');
+      if (!v) {
+        v = 'v-' + ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+          (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+        );
+        localStorage.setItem('visitor_uuid_v1', v);
+      }
+      return v;
+    }
+
+    function updateStatus(s) {
+      document.getElementById('status').innerText = s;
+    }
+
+    function sendLog(lat, lon) {
+      const payload = {
+        visitorUUID: getVisitorUUID(),
+        lat: lat || '',
+        lon: lon || '',
+        scanTime: new Date().toISOString(),
+        device: params.device,
+        t: params.t,
+        sig: params.sig,
+        userAgent: navigator.userAgent
+      };
+
+      fetch(SCRIPT_URL, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(payload)
+      })
+      .then(r => r.text()) // parse as text first
+      .then(txt => {
+        let j;
+        try { j = JSON.parse(txt); } 
+        catch(e) { j = { status:'error', message: txt }; }
+
+        if (j.status === 'ok') {
+          updateStatus('Thank you — your scan was logged. Queue position: ' + j.queue);
+        } else {
+          updateStatus('Logged but server returned: ' + (j.message || txt));
+        }
+      })
+      .catch(err => updateStatus('Error sending data: ' + err.message));
+    }
+
+    function getCoordsAndSend() {
+      if (navigator.geolocation) {
+        updateStatus('Requesting location — please allow.');
+        navigator.geolocation.getCurrentPosition(
+          pos => sendLog(pos.coords.latitude, pos.coords.longitude),
+          err => {
+            updateStatus('Location denied/unavailable. Logging without coordinates.');
+            sendLog('', '');
+          },
+          { timeout: 8000 }
+        );
+      } else {
+        updateStatus('Geolocation not supported. Logging without coordinates.');
+        sendLog('', '');
+      }
+    }
+
+    // ----- INITIAL SCAN -----
+    getCoordsAndSend();
+
+    // ----- REPEAT SCAN EVERY 30 SECONDS -----
+    setInterval(getCoordsAndSend, 30000);
+  </script>
+</body>
+</html>
